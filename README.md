@@ -5,7 +5,7 @@
 * Kacper Józefkowicz
 
 ## Opis projektu
-Projekt ten przedstawia kompleksową analizę opisową zachowań klientów firmy telekomunikacyjnej. Projekt jest częścią przedmiotu Eksploracja Danych.
+Projekt ten przedstawia kompleksową analizę opisową zachowań klientów firmy telekomunikacyjnej. Projekt jest częścią przedmiotu Eksploracja Danych w roku akademickim 25/26.
 
 ## Zbiór danych
 Analiza opiera się na zbiorze danych `WA_Fn-UseC_-Telco-Customer-Churn.csv`.
