@@ -1,0 +1,405 @@
+---
+title: "Eksploracja danych"
+subtitle: "Sprawozdanie z listy 1."
+author: "Kacper Józefkowicz, Zuzanna Jastrzębska"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+    dev: cairo_pdf
+header-includes:
+   - \usepackage[T1]{fontenc}
+   - \usepackage[polish]{babel}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+fontsize: 12pt
+---
+
+\newpage
+
+# Wczytanie i przygotowanie danych (Etap 1)
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.align = 'center', fig.pos = "H", fig.width = 10, fig.height = 7, out.width = "70%", dev = "cairo_pdf")
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(xtable)
+library(gridExtra)
+library(e1071)
+library(grid)
+
+# wczytanie danych
+data_set <- read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
+attach(data_set)
+```
+
+## Krótki opis
+
+Zadanie polegało na przygotowaniu i przeanalizowaniu danych "WA_Fn-UseC\_-Telco-Customer-Churn.csv" podanych przez prowadzącego, dotyczących danych klientów firmy telekomunikacyjnej. W poniższym raporcie znajduje się:
+
+-   Wczytanie i przygotowanie do analizy danych.
+
+-   Odpowiedź na podstawowe pytania dotyczące analizowanych danych (np. rozmiar, typ danych).
+
+-   Analiza opisowa, wyznaczenie wskaźników sumarycznych.
+
+-   Analiza wykresów, rozkłady poszczególnych cech.
+
+-   Analiza opisowa z podziałem na grupy.
+
+-   Interpretacja wyników.
+
+## Przygotowanie danych do analizy
+
+```{r data_type, include = FALSE}
+
+# sprawdzenie typów danych oraz ich przykładowych wartości
+str(data_set)
+
+```
+
+Przygotowujemy dane do analizy. Kolumna *SeniorCitizen* zawiera dane jakościowe jednak jest zapisana jako typ numeric. Pozostałe dane jakościowe są z kolei zapisane jako typ character. Zmienne ilościowe (pozostałe dane) są zapisane poprawnie. Poniższy fragment kodu odpowiada na poprawienie typu danych w kolumnach ze zmiennymi jakościowymi na factor:
+
+```{r changing_type, echo = TRUE}
+
+data_set$SeniorCitizen <- factor(ifelse(
+  data_set$SeniorCitizen == 1, "Yes", "No"))
+
+data_set <- data_set %>% mutate(across(where(
+  ~ !is.numeric(.) & !is.factor(.)), as.factor))
+
+detach(data_set)
+attach(data_set)
+
+```
+
+Zbiór danych zawiera `r nrow(data_set)` przypadków oraz `r ncol(data_set)` cech. Poniższy kod sprawdza typ danych zapisanych w każdej kolumnie - pod nazwą kolumny znajduje się typ danych:
+
+```{r data_size, echo = TRUE}
+
+sapply(data_set, class)
+
+```
+
+Kolumna *customerID* jest niepotrzebna do analizy - zawiera identyfikatory klientów, poniższy kod usuwa ją z analizowanych danych.
+
+```{r data_cleaning, include = TRUE}
+
+data_set <- data_set %>% select(-customerID)
+
+```
+
+Następnym krokiem przygotowania danych jest zamiana brakujących obserwacji na typ NA, który nie bierze udziału w dalszej analizie. Problematycznie zapisane brakujące obserwacje występujące w danych to: "No phone service", "No internet service". Przed ich zamianą na typ NA występuje `r sum(is.na(data_set))` brakujących wartości. Zapisujemy nietypowo zakodowane brakujące obserwacje na typ NA.
+
+```{r missing_data, echo = FALSE}
+
+data_set <- data_set %>% mutate(across(
+  c(OnlineSecurity, OnlineBackup, DeviceProtection,TechSupport, StreamingTV, StreamingMovies), 
+  na_if, "No internet service"))
+
+data_set$MultipleLines <- na_if(data_set$MultipleLines, "No phone service")
+
+data_set <- droplevels(data_set)
+
+detach(data_set)
+attach(data_set)
+```
+
+Po podmianie brakujących obserwacji jest `r sum(is.na(data_set))`. Dane są gotowe do analizy.
+
+# Analiza opisowa (Etap 2)
+
+## Wyznaczenie wskaźników sumarycznych
+
+Na początku podsumowanie danych ilościowych. Wyznaczamy dla nich wskaźniki sumaryczne:
+
+```{r measure_of_location, echo = FALSE, results = "asis"}
+
+# jeśli są wartości NA, to summary() tworzy 7 kolumnę, której nie chcemy
+data_num_summary <- rbind(summary(tenure)[1:6], summary(MonthlyCharges)[1:6], summary(TotalCharges)[1:6])
+rownames(data_num_summary) <- c("tenure", "MonthlyCharges", "TotalCharges")
+tab1 <- xtable(data_num_summary, caption ="Miary położenia dla zmiennych",  label = "tab:tab1")
+
+print(tab1, type = "latex", table.placement = "H", comment=FALSE, include.rownames = TRUE)
+
+```
+
+```{r measure_of_dispersion, echo = FALSE, results = "asis"}
+
+data_num_disp_summary <- matrix(c(sd(tenure, na.rm = TRUE),
+                                  IQR(tenure, na.rm = TRUE),
+                                  max(tenure, na.rm = TRUE) - min(tenure, na.rm = TRUE),
+                                  sd(MonthlyCharges, na.rm = TRUE),
+                                  IQR(MonthlyCharges, na.rm = TRUE),
+                                  max(MonthlyCharges, na.rm = TRUE) - min(MonthlyCharges, na.rm = TRUE),
+                                  sd(TotalCharges, na.rm = TRUE),
+                                  IQR(TotalCharges, na.rm = TRUE),
+                                  max(TotalCharges, na.rm = TRUE) - min(TotalCharges, na.rm = TRUE)),
+                                nrow = 3, ncol = 3)
+rownames(data_num_disp_summary) <- c("Odchylenie standardowe", "Rozstęp miedzykwartylowy", "Max - min")
+colnames(data_num_disp_summary) <- c("Czas korzystania z usług", "Miesięczny koszt","Całkowity koszt")
+
+tab2 <- xtable( data_num_disp_summary, caption = "Miary rozproszenia dla zmiennych", label = "tab:tab2")
+print(tab2, type = "latex", table.placement = "H", comment=FALSE, include.rownames = TRUE)
+
+```
+
+Z tabeli \ref{tab:tab1} możemy odczytać, że średni czas korzystania z usług przez klienta wynosi: `r round(mean(tenure), 2)`. Podobnie mediana miesięcznych wydatków wynosi: `r round(median(MonthlyCharges), 2)`.
+
+```{r data_summary, include = FALSE}
+
+data_summary <- data_set %>% select(where(is.factor)) %>% summary()
+data_summary <- as.data.frame.matrix(data_summary)
+str(data_summary)
+
+```
+
+Dodatkowo o cechach jakościowych możemy powiedzieć, że stosunek kobiet do mężczyzn wśród klientów wynosi: `r round(sum(gender == "Female") / sum(gender == "Male"), 2)` zatem w przybliżeniu jest tyle samo kobiet i mężczyzn. Istnieje jednak dysproporcja pomiędzy seniorami (`r sum(SeniorCitizen == "Yes")` osób) i młodszymi klientami (`r sum(SeniorCitizen == "No")` osób). Z interesujących obserwacji warto wymienić, że zdecydowana większość klientów korzysta z usług telefonicznych - `r round(sum(PhoneService == "Yes") / sum(!is.na(PhoneService)) * 100, 2)` %. Ponadto zdecydowana mniejszość klientów rezygnuje z usług firmy, zaledwie `r sum(Churn == "Yes")` w porównaniu do `r sum(Churn == "No")` wiernych klientów.
+
+## Analiza wykresów
+
+```{r quantitative_values_charts, echo = FALSE, eval=TRUE, fig.cap="Wykres danych jakosciowych"}
+library(DataExplorer)
+
+internet_data <- subset(data_set, select = -c(MultipleLines, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, StreamingTV, StreamingMovies))
+# internet_data %>% plot_bar()
+
+# split_columns(data_set)$continuous %>% plot_histogram()
+```
+
+Ciekawą obserwacją z rysunku \ref{fig:payment_chart} poniżej jest to, że klienci stosunkowo niechętnie korzystają ze zautomatyzowanych metod płatności i preferują płatność internetową lub poprzez pocztę.
+
+```{r payment_chart, echo = FALSE, eval=TRUE, fig.cap="Ilość dokonanych transakcji w zależności od sposobu płatności"}
+
+ggplot(data_set, aes(fill = PaymentMethod, x = PaymentMethod)) + geom_bar(show.legend = FALSE) + xlab("Sposób płatności") + ylab("Zliczenia") + ggtitle("Jak często występuje wśród klientów dany sposób płatności")
+
+```
+
+Warto również zwrócić uwagę (rys. \ref{fig:tenure_chart}) na średni czas korzystania usług przez klientów. Jest wielu klientów, którzy mają długi albo krótki czas korzystania z usług firmy, jednak niewielu, których czas korzystania jest pomiędzy. Może to sugerować niedawny duży przypływ nowych klientów, po okresie niewielkich zmian w liczbie klientów.
+
+```{r tenure_chart, echo = FALSE, eval = TRUE, fig.cap = "Niebieska przerywana linia wyznacza średni czas korzystania z usług, natomiast czarna - medianę."}
+
+ggplot(data_set, aes(x = tenure, fill = SeniorCitizen)) + geom_histogram(bins = 20, alpha = 0.7, position = "identity") + geom_vline(aes(xintercept=mean(tenure)), color="blue", linetype="dashed", size=1) + geom_vline(aes(xintercept=median(tenure)), color="black", linetype="dashed", size=1) + xlab("Czas") + ylab("Zliczenia") + ggtitle("Czas korzystania z usług przez klientow w zależności od ich wieku")
+
+```
+
+```{r totalcharges_chart, echo = FALSE, eval = TRUE, fig.cap = "Wykresy danych ilosciowych"}
+
+p1 <- ggplot(data_set, aes(fill=InternetService, x=TotalCharges)) + geom_histogram(bins = round(min(TotalCharges, na.rm = TRUE),0), color = "black") + xlab("Całkowity koszt") + ylab("Zliczenia") + ggtitle("Ilość klientów w zależności od całkowitych wydatków.")
+
+p2 <- ggplot(data_set, aes(fill=InternetService, x=MonthlyCharges)) + geom_histogram(bins = round(min(MonthlyCharges, na.rm = TRUE),0), color = "black") + xlab("Miesięczny koszt") + ylab("Zliczenia") + ggtitle("Ilość klientów w zależności od miesięcznych wydatków.")
+
+p3 <- ggplot(data_set, aes(fill=InternetService, x=tenure)) + geom_histogram(bins = 20, color = "black") + xlab("Czas") + ylab("Zliczenia") + ggtitle("Ilość klientów w zależności od czasu korzystania z usług.")
+
+grid.arrange(p1, p2, p3)
+
+```
+
+Jak możemy zaobserwować, na rysunku \ref{fig:totalcharges_chart} najmniejsze koszty ponoszą klienci nie korzystający z usług internetowych. Z kolei internet światłowodowy jest jedyną wybieraną opcją wśród klientów płacących najwięcej. Dodatkowo na podstawie tych histogramów możemy zaobserwować, że żadna ze zmiennych nie ma rozkładu symetrycznego. Pierwszy wykres jest przykładem rozkładu prawostronnie skośnego, ze skośnością wynoszącą `r round(skewness(TotalCharges, na.rm = TRUE), 2)`. Natomiast kolejny wykres (miesięcznych kosztów) jest dwumodalny. Ostatni wykres z kolei jest dosyć symetryczny względem środka - jego skośność wynosi jedynie `r round(skewness(tenure), 2)`.
+
+```{r scatter_charts, echo = FALSE, eval = TRUE, fig.cap = "Wykresy rozrzutu danych ilościowych"}
+
+p1 <- ggplot(data_set, aes(x = MonthlyCharges, y = TotalCharges, colour = InternetService)) + geom_point() + xlab("Miesięczny koszt") + ylab("Całkowity koszt")
+p2 <- ggplot(data_set, aes(x = tenure, y = TotalCharges, colour = InternetService)) + geom_point() + xlab("Czas") + ylab("Całkowity koszt")
+
+grid.arrange(p1, p2)
+```
+
+Dalsza analiza, tym razem wykresów rozrzutu (rys. \ref{fig:scatter_charts}), ukazuje nam zależność liniową pomiędzy czasem korzystania z usług przez klientów, a całkowitym kosztem - im dłużej klient korzysta z usług, tym więcej płaci, niezależne od wybranego sposobu dostawy internetu (lub jego braku). Oznacza to, że korzystne dla firmy jest zatrzymywanie klientów.
+
+```{r variety_chart, echo = FALSE, eval = TRUE, fig.cap = "Ile klientów (kobiet i mężczyzn) dokonuje danym sposobem płatności w zależności od miesięcznych kosztów"}
+
+ggplot(data_set, aes(x = PaymentMethod, y = MonthlyCharges, shape = gender, fill = gender)) + geom_boxplot() + xlab("Sposób płatności") + ylab("Miesięczny koszt")
+
+```
+
+Powyższy wykres pudełkowy (rys. \ref{fig:variety_chart}) pokazuje wartości kilku podstawowych wskaźników dla miesięcznych wydatków oraz ze względu na sposób płatności i płeć. Jak widać, niezależnie od płci dane są do siebie zbliżone, jednak widać niedużą przewagę płatności zautomatyzowanych wśród mężczyzn i mniejszą ilość klientów płci męskiej płacących za pomocą poczty.
+
+# Analiza opisowa z podziałem na grupy (Etap 3)
+
+Celem etapu była analiza opisowa uwzględniająca podział na grupy:
+
+\- grupa 1: "Churn == Yes" - grupa klientów, którzy zrezygnowali z usług;
+
+\- grupa 2: "Churn == No" - grupa lojalnych klientów, którzy korzystają z usług firmy.
+
+```{r data_pie, echo = FALSE}
+data_pie <- data_set %>% count(Churn) %>% mutate(procent = n/sum(n), etykieta = paste0(n, " (", scales::percent(procent, accuracy = 1), ")"))
+```
+
+```{r pie_chart, echo=FALSE, fig.cap="Wykres kołowy rezygnacji z usług", fig.align='center'}
+ggplot(data_pie, aes(fill = Churn, x = "", y = n)) + geom_col(width = 1, color = "black") +scale_fill_manual(values= c("palegreen3", "indianred")) + geom_text(aes(label = etykieta), position = position_stack(vjust = 0.5), size = 5) + coord_polar("y", start = 0) + labs(title = "Odsetek osób, które zrezygnowały z usług firmy") + theme_void()
+
+```
+
+Z danych wynika, iż `r sum(Churn == "Yes")` osób zdecydowało się zrezygnować z usług firmy, co stanowi `r round(mean(Churn == "Yes") * 100,2)`% wszystkich klientów (rys. \ref{fig:pie_chart}).
+
+## Porównanie wskaźników sumarycznych
+
+```{r data_num_summary_yes, echo = FALSE, results = "asis"}
+data_yes <- data_set %>% filter(Churn == "Yes")
+data_num_yes <- rbind(summary(data_yes$tenure)[1:6], summary(data_yes$MonthlyCharges)[1:6], summary(data_yes$TotalCharges)[1:6])
+rownames(data_num_yes) <- c("tenure", "MonthlyCharges", "TotalCharges")
+tab3 <- xtable(data_num_yes, caption ="Miary położenia dla zmiennych (Churn == Yes)",  label = "tab:tab3")
+
+print(tab3, type = "latex", table.placement = "H", comment=FALSE, include.rownames = TRUE)
+
+```
+
+```{r data_num_summary_no, echo = FALSE, results = "asis"}
+data_no <- data_set %>% filter(Churn == "No")
+data_num_no <- rbind(summary(data_no$tenure)[1:6], summary(data_no$MonthlyCharges)[1:6], summary(data_no$TotalCharges)[1:6])
+rownames(data_num_no) <- c("tenure", "MonthlyCharges", "TotalCharges")
+tab4 <- xtable(data_num_no, caption ="Miary położenia dla zmiennych (Churn == No)",  label = "tab:tab4")
+
+print(tab4, type = "latex", table.placement = "H", comment=FALSE, include.rownames = TRUE)
+
+```
+
+Zestawienie tabel \ref{tab:tab3} oraz \ref{tab:tab4} zawierających dane sumaryczne ukazuje, iż jednym z czynników dzielącym obie grupy jest różnica w średnich opłatach miesięcznych, która wynosi `r round(abs(mean(MonthlyCharges[Churn == "No"], na.rm=TRUE) - mean(MonthlyCharges[Churn == "Yes"], na.rm=TRUE)), 2)` na korzyść stałych klientów. Ponadto klienci decydują się rezygnować średnio po `r round(mean(tenure[Churn == "Yes"], na.rm = TRUE), 1)` miesiącach współpracy.
+
+```{r data_summary_yes, echo = FALSE, include=FALSE}
+
+data_summary_yes <- data_set %>% filter(Churn == "Yes") %>% select(where(~ is.factor(.) | is.character(.))) %>% mutate(across(everything(), as.factor)) %>% summary()
+data_summary_yes
+
+```
+
+```{r data_summary_no, echo = FALSE, include=FALSE}
+
+data_summary_no <- data_set %>% filter(Churn == "No") %>% select(where(~ is.factor(.) | is.character(.))) %>% mutate(across(everything(), as.factor)) %>% summary()
+data_summary_no
+
+```
+
+Dodatkowo dane jakościowe ukazują, iż nie występuje wyraźna dysproporcja płci. Stosunek kobiet i mężczyzn wśród byłych klientów wynosi `r round(sum(gender == "Female" & Churn == "Yes") / sum(gender == "Male" & Churn == "Yes"), 2)`, natomiast spośród aktualnych: `r round(sum(gender == "Female" & Churn == "No") / sum(gender == "Male" & Churn == "No"), 2)`. Interesującą obserwacją jest fakt, iż osoby, które posiadają partnera rzadziej decydują się na rozwiązanie umowy. Odsetek rezygnacji wśród osób z partnerem wynosi `r round(mean(Partner == "Yes" & Churn == "Yes") * 100, 1)`%, gdy pośród klientów bez partnera wzrasta do `r round(mean(Partner == "No" & Churn == "Yes")* 100, 2)`%. Podobny wpływ ma obeność osób na utrzymaniu (Dependents), co może sugerować, że osoby o mniejszych, miesięcznych zobowiązaniach finansowych są bardziej skłonne do zmian usługodawców.
+
+## Analiza wykresów
+
+```{r scatter_plots_churn, echo = FALSE, eval = TRUE, fig.cap = "Wykresy rozrzutu dla zmiennych ilościowych"}
+p1 <- ggplot(data_set, aes(x= tenure, y = MonthlyCharges, color = Churn)) + geom_point(alpha = 0.6) + labs(title = "Zależność między czasem korzystania z usług a opłatami miesięcznymi", x = "Czas korzystania z usług", y = "Opłaty miesięczne")
+p2 <- ggplot(data_set, aes(x = tenure, y = TotalCharges, color = Churn)) + geom_point(alpha = 0.6) + geom_smooth(data = subset(data_set, Churn == "Yes"), method = "lm", size = 0.8, color = "steelblue") + labs(title = "Zależność między czasem korzystania z usług a kosztem całkowitym", x = "Czas korzystania z usług", y = "Opłaty całkowite")
+grid.arrange(p1,p2,nrow=2)
+
+
+```
+
+Wykresy rozrzutu (rys. \ref{fig:scatter_plots_churn}) potwierdzają założenie o zauważalnie wyższych płacach miesięcznych w grupie byłych klientów, którch rozkład wskazuje zależność liniową. Dodatkowo ukazują one, że abonenci, którzy w pierwszych miesiącach korzystania z usług mają wyższe zobowiązania miesięczne, są znacznie bardziej skłonni do szybszego zakończenia współpracy.
+
+```{r box_plots_churn, echo = FALSE, eval = FALSE, fig.cap = "Wykresy pudełkowe dla zmiennych ilościowych"}
+p1<- ggplot(data_set, aes(y=Churn, x=TotalCharges, fill=Churn, shape=Churn))+
+  geom_boxplot() + ylab(NULL) + xlab("Całkowite koszty")
+p2<- ggplot(data_set, aes(y=Churn, x=MonthlyCharges, fill=Churn, shape=Churn))+
+  geom_boxplot() + ylab("Czy klient zrezygnował?") + xlab("Opłaty miesięczne")
+p3<- ggplot(data_set, aes(y=Churn, x=tenure, fill=Churn, shape=Churn))+
+  geom_boxplot() + ylab(NULL) + xlab("Czas korzystania z usług (miesiące)")
+grid.arrange(p1,p2,p3,nrow=3, 
+             top=textGrob('Wykresy pudełkowe dla zmiennych ilościowych'))
+
+```
+
+```{r density_churn, echo = FALSE, fig.cap = "Wykresy estymatorów jądrowych dla zmiennych ilościowych", fig.height= 10, fig.width= 8}
+p3 <- ggplot(data_set, aes(fill=Churn, colour=Churn))+
+  geom_density(aes(TotalCharges),alpha=0.6) +labs(x = "Całkowity koszt", y = NULL)
+p1 <- ggplot(data_set, aes(fill=Churn, colour=Churn))+
+  geom_density(aes(MonthlyCharges), alpha=0.6) + labs(x = "Opłaty miesięczne", y = "Gęstość" )
+p2 <- ggplot(data_set, aes(fill=Churn, colour=Churn))+
+  geom_density(aes(tenure),alpha=0.6) + labs(x = "Czas korzystania z usług", y = NULL)
+grid.arrange(p1,p2,p3,nrow=3, 
+             top=textGrob('Wykresy estymatorów jądrowych gęstości dla zmiennych ilościowych'))
+
+```
+
+Różnice w charakterystyce klientów podkreśla również rozkład opłat miesięcznych. Wykres gęstości dla grupy klientów rezygnujących jest skumulowany w przedziale najwyższych kwot (\>= 70), co dodatkowo sygnalizuje wysokie opłaty, jako przyczynę rezygnacji z usług. W przypadku stałych usługobiorców, rozkład ten jest bardziej wypłaszczony na całej długości przedziału, z widoczną kumulacją wśród najniższych dostępnych stawek.
+
+Co więcej, najczęściej klienci decydują się na zmianę usługodawcy już w trakcie pierwszego roku od podpisania umowy. Podkreśla to prawostronna skośność rozkładu stażu dla grupy klientów rezygnujących. Mediana czasu korzystania z usług firmy wynosi `r median(tenure[Churn == "Yes"], na.rm = TRUE)` miesięcy, podczas gdy średnia to `r round(mean(tenure[Churn == "Yes"], na.rm = TRUE), 1)` miesięcy.
+
+Można również zaobserwować, iż stali klienci posiadają wyższe koszty całkowite. Rozkłady kosztów całkowitych w obu grupach charakteryzują się prawostronną skośnością, jednak w przypadku klientów lojalnych jest ona wyraźnie łagodniejsza (wynosząca `r round(skewness(TotalCharges[Churn == "No"], na.rm = TRUE), 2)`), co wynika z ich dłuższego stażu.
+
+```{r bars_churn, echo = FALSE, fig.cap="Wykres słupkowy z podziałem na typ umowy"}
+
+p1 <- ggplot(data_set, aes(fill = Churn, x = Contract)) + geom_bar(show.legend = TRUE) + geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(vjust = 0.5), color = "black", size = 4) + scale_fill_manual(values= c("steelblue", "firebrick")) + xlab("Typ umowy") + ylab("Liczba klientów")
+
+p2 <- ggplot(data_set, aes(fill = Churn, x = InternetService)) + geom_bar(show.legend = TRUE) + geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(vjust = 0.5), color = "black", size = 4) +  scale_fill_manual(values= c("steelblue", "firebrick")) + xlab("Rodzaj usługi internetowej") + ylab("Liczba klientów")
+
+grid.arrange(p1,p2,nrow=2, 
+             top=textGrob('Wykresy słupkowe dla zmiennych kategorycznych Contract oraz InternetService'))
+
+```
+
+Kolejnym istotnym czynnikiem wpływającym na decyzję użytkownika jest typ podpisanej umowy. Najliczniejszą grupę stanowią usługobiorcy połączeni umową odnawialną co miesiąc (Month-to-month). Generuje ona najwyższy odstetek rezygnacji, wynoszący `r round(mean(Churn == "Yes" & Contract == "Month-to-month") * 100, 1)`%. Klienci powiązani umowami długoterminowymi, zdecydowanie rzadziej decydują się rezygnować z usług, gdzie odstetki osób w przypadku umowy rocznej oraz dwuletniej wynoszą kolejno `r round(mean(Churn == "Yes" & Contract == "One year") * 100, 1)`% oraz `r round(mean(Churn == "Yes" & Contract == "Two year") * 100, 1)`%. Ponadto, zmienną różniącą badane grupy jest rodzaj posiadanej usługi internetowej. Z powyższego wykresu słupkowego wynika, że najpopularniejszą usługą jest internet światłowodowy (Fiber optic), który równocześnie wiąże się z największym ryzykiem odejścia klienta. Dane ukazują, iż blisko `r round(mean(Churn[InternetService == "Fiber optic"] == "Yes", na.rm = TRUE) * 100, 1)`% osób korzystających ze światłowodu decyduje się na zakończenie umowy.
+
+```{r payment_churn, echo = FALSE, fig.cap="Zestawienie metod płatności według najwyższego wskaźnika rezygnacji"}
+data_set %>% group_by(PaymentMethod) %>% summarise(Churn_mean = round(mean(Churn == "Yes", na.rm = TRUE) * 100, 2)) %>% ggplot(aes(x = reorder(PaymentMethod, Churn_mean), y = Churn_mean)) +
+  geom_segment(aes(xend = PaymentMethod, yend= 0), color = "black", size = 1) + geom_point(size = 3, color = "magenta") + coord_flip() + labs(title = "Odsetek rezygnacji a metoda płatności", x = "Metoda płatności", y = "Odsetek rezygnacji (%)")
+
+```
+
+Powyższy wykres (rys. \ref{fig:payment_churn}) obrazuje najpopularniejsze metody płatności wśród osób decydujących się na nieprzedłużanie umowy. Blisko `r round(mean(Churn[PaymentMethod == "Electronic check"] == "Yes", na.rm = TRUE) * 100, 1)`% klientów rozliczających się przy pomocy czeków elektronicznych (Electronic check) rezygnuje z usług, co jest zdecydowanie wyższym wynikiem względem pozostałych metod. Najniższy odsetek odejść obserwuje się przy płatnościach automatycznych, takich jak przelew bankowy czy karta kredytowa, co prawdopodobnie wynika z wygody tych rozliczeń.
+
+```{r fiber_techsupport, echo = FALSE, fig.cap="Wykres słupkowy dla klientów internetu światłowodowego z podziałem wsparcia technicznego"}
+data_set %>% filter(InternetService == "Fiber optic") %>% count(TechSupport, Churn) %>% group_by(TechSupport) %>% mutate(percentage = n/sum(n)) %>% ggplot(aes(x = TechSupport, y = percentage, fill = Churn)) + geom_bar(stat = "identity", position = "fill") + geom_text(aes(label = scales::percent(percentage, accuracy = 0.1)), position = position_fill(vjust = 0.5), color = "black", size = 5) + scale_y_continuous(labels = scales::percent_format()) + scale_fill_manual(values= c("#F4A460","palegreen3")) + labs(title = "Wsparcie techniczna a rezygnacja z usługi światłowodu", x = "Czy klient posiada usługę TechSupport?", y = "Odsetek klientów (%)", fill = "Churn")
+
+
+```
+
+Ponadto na powyższym wykresie (rys. \ref{fig:fiber_techsupport}) można zauważyć znaczącą różnicę wśród klientów internetu światłowodowego. Blisko połowa abonentów (ok. `r round(mean(Churn[TechSupport == "No" & InternetService == "Fiber optic"] == "Yes", na.rm = TRUE) * 100, 1)`%) nie korzystających ze wsparcia technicznego, decyduje się na rezygnację. Jest to kluczowa cecha w zestawieniu z klientami z wykupionym wsparciem, gdzie odsetek byłych abonentów wynosi `r round(mean(Churn[TechSupport == "Yes" & InternetService == "Fiber optic"] == "Yes", na.rm = TRUE) * 100, 1)`%. Dane nakreślają ważny problem wśród klientów najpopularniejszej usługi internetowej, która może wpływać na ostateczną decyzję klienta.
+
+# Podsumowanie analizy opisowej (Etap 4)
+
+-   Zakres możliwych wartości poszczególnych zmiennych (dla cech ilościowych):
+
+    -   Czas korzystania z usług: maksimum: `r round(max(tenure, na.rm = TRUE),2)`, minimum: `r round(min(tenure, na.rm = TRUE),2)`.
+
+    -   Miesięczne koszty: maksimum: `r round(max(MonthlyCharges, na.rm = TRUE),2)`, minimum: `r round(min(MonthlyCharges, na.rm = TRUE),2)`.
+
+    -   Całkowite koszty: maksimum: `r round(max(TotalCharges, na.rm = TRUE),2)`, minimum: `r round(min(TotalCharges, na.rm = TRUE),2)`.
+
+-   Występuje zależność liniowa pomiędzy czasem korzystania z usług przez klienta, a jego całkowitymi kosztami.
+
+-   W przypadku zmiennych ilościowych - wykresy są przedstawiają różne rodzaje rozkładów: prawostronnie skośny (zmienna *TotalCharges*), dwumodalny (zmienna *MonthlyCharges*) oraz symetryczny (zmienna *tenure*).
+
+-   W przypadku zmiennych jakościowych:
+
+    -   Podział na kobiety i mężczyzn wśród klientów jest równy. Znaczna ilość klientów nie jest seniorami.
+
+    -   Niewiele ponad połowa klientów nie ma partnera/partnerki.
+
+    -   `r round(sum(Dependents == "Yes") / sum(!is.na(Dependents)) * 100, 2)` % klientów posiada osoby na utrzymaniu.
+
+    -   Zdecydowana większość klientów korzysta z usług telefonicznych firmy.
+
+    -   W przypadku klientów, którzy nie mają dostępu do internetu kolumny *OnlineSecurity*, *OnlineBackup*, *DeviceProtection*, *TechSupport*, *StreamingTV* oraz *StreamingMovies* ich nie dotyczą. Największa różnica w liczbie klientów dotyczy korzystania z ochrony internetowej (*OnlineSecurity*): `r abs(sum(OnlineSecurity == "No", na.rm = TRUE) - sum(OnlineSecurity == "Yes", na.rm = TRUE))`, w pozostałych przypadkach różnice te nie są duże.
+
+-   Blisko `r round(mean(Churn == "Yes") * 100, 1)`% wszystkich klientów decyduje się na rezygnację. Jako główne przyczyny wskazać można: zbyt wysokie opłaty początkowe oraz perspektywę wysokich rachunków w przyszłości, brak stabilnej, długoterminowej umowy, a także problemy z użytkowaniem jednej z usług. Abonenci decydujący się na odejście charakteryzują się:
+
+    -   umową odnawianą miesięcznie (Month-to-month),
+
+    -   brakiem partnera lub osób zależnych finansowo,
+
+    -   wysokimi zobowiązaniami początkowymi oraz wysokimi rachunkami,
+
+    -   korzystaniem z internetu światłowodowego oraz brakiem wykupionej usługi wsparcia technicznego,
+
+    -   płatnością za pomocą czeków elektronicznych.
+
+-   Strategią firmy mającą na celu zapobieganie utraty klientów powinno być:
+
+    -   promowanie umów długoterminowych wraz ze zniżkami dla nowych i lojalnych klientów,
+
+    -   oferowanie okresu próbnego dla nowych klientów z niższymi kosztami usług,
+
+    -   zachęcanie do korzystania z automatycznych metod rozliczeń, takich jak przelewy bankowe czy podpięcie karty kredytowej,
+
+    -   rozszerzenie oferty o pakiet internetu światłowodowego wraz ze stałym wsparciem technicznym w korzystnej cenie,
+
+    -   oferowanie bezpłatnego wsparcia technicznego dla lojalnych klientów, którzy są niezadowoleni lub borykają się z problemami dotyczącymi kluczowych usług.
